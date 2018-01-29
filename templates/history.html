@@ -1,0 +1,28 @@
+{% extends "layout.html" %}
+
+{% block title %}
+    History
+{% endblock %}
+
+{% block main %}
+    <table class="table table-striped">
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th>Source</th>
+                <th>Destination</th>
+                <th>Transaction</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for history in histories %}
+            <tr>
+                <td>{{ history.date }}</td>
+                <td>{{ history.source }}</td>
+                <td>{{ history.destination }}</td>
+                <td>{{ history.ticket_no }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+{% endblock %}
