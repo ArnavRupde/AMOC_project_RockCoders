@@ -2,8 +2,6 @@ from cs50 import SQL
 from flask import Flask, flash, redirect, render_template, request, session, url_for
 from flask_session import Session
 from tempfile import mkdtemp
-from werkzeug.exceptions import default_exceptions
-from werkzeug.security import check_password_hash, generate_password_hash
 
 from helpers import apology, login_required, lookup, usd
 
@@ -29,29 +27,27 @@ app.config["SESSION_PERMANENT"] = False
 app.config["SESSION_TYPE"] = "filesystem"
 Session(app)
 
-# Configure CS50 Library to use SQLite database
-db = SQL("sqlite:///finance.db")
+# Configure to use SQLite database
+db = SQL("sqlite:///booking.db")
 
 
 @app.route("/")
 @login_required
 def index():
     """Show portfolio of stocks"""
-    # select stocks that user bought
-    portfolio_temp = db.execute("SELECT shares, symbol FROM portfolio WHERE id= :id", id=session["user_id"])
-    # create TOTAL(cash+shares) variable for later use
+    pricelist_temp = db.execute("SELECT station1, station2 FROM pricelist WHERE id= :id", id=session["user_id"])
+    # create TOTAL(cash+tickets) variable for later use
     totalcash = 0
     # update stock that user bought and total cash
-    for i in portfolio_temp:
+    for i in pricelist:
         station1 = i["station"]
         NoOfTickets = i["tickets"]
-        station2 = lookup(station)
+        station2 = i["station"]
         totalcash += total
-        db.execute("UPDATE portfolio SET price=:price, total= :total WHERE id= :id AND symbol= :symbol",\
+        db.execute("UPDATE pricelist_temp SET price=:price, total= :total WHERE id= :id AND symbol= :symbol",\
                     price=usd(stock["price"]),
                     total=usd(total),
-                    id=session["user_id"],
-                    symbol=symbol)
+                    id=session["user_id"])
 
     # update user's cash in portfolio
     updatedcash = db.execute("SELECT cash FROM users WHERE id= :id", id=session["user_id"])
@@ -59,41 +55,38 @@ def index():
     # calculate total asset
     totalcash += updatedcash[0]["cash"]
     # update portfolio
-    updatedportfolio = db.execute("SELECT * from portfolio WHERE id= :id", id=session["user_id"])
+    updatedpricelist = db.execute("SELECT * from pricelist WHERE id= :id", id=session["user_id"])
 
-    return render_template("index.html", stocks=updatedportfolio, cash=usd(updatedcash[0]["cash"]),\
+    return render_template("index.html", ticketss=updatedportfolio, cash=usd(updatedcash[0]["cash"]),\
                             total=usd(totalcash))
 
 
-@app.route("/buy", methods=["GET", "POST"])
+@app.route("/book", methods=["GET", "POST"])
 @login_required
 def book():
     """Buy shares of stock"""
     if request.method == "GET":
         return render_template("book.html")
     else:
-        # make sure valid symbol
-        book = lookup(request.form.get("type"))
-        if not book:
-            return apology("Must enter proper sorce and destination")
-        # make sure valid shares
-        station1 = int(request.form.get("station1"))
+        # make sure valid station
+
+        station1 = lookup(request.form.get("station1"))
         if not station1:
             return apology("Must enter valid station")
             # make sure valid shares
-        station2 = int(request.form.get("station2"))
+        station2 = lookup(request.form.get("station2"))
         if not station2:
             return apology("Must enter valid station")
 
         # check how much cash does user have
         cash = db.execute("SELECT cash FROM users WHERE id = :id", id = session["user_id"])
 
-        stock = lookup(request.form.get("symbol"))
-        name = stock['name']
+        station1 = lookup(request.form.get("pickup"))
+        station2 = lookup(request.form.get("destination"))
         symbol = stock['symbol']
-        price = stock['price']
+        price = pricelist['price']
 
-        if shares * price > cash[0]["cash"]:
+        if total_tickets * price > cash[0]["price"]:
             return apology("You don't have enough money!")
 
         # update to history
@@ -105,20 +98,15 @@ def book():
 
         # update users cash
         db.execute("UPDATE users SET cash = cash - :purchase WHERE id = :id", id=session["user_id"],\
-                    purchase=stock["price"] * float(shares))
+                    purchase=ticket["price"] * totaltickets
 
-        # check stock already in portfolio or not
-        usershares = db.execute("SELECT shares FROM portfolio WHERE id= :id AND symbol= :symbol",\
-        id=session["user_id"], symbol=stock["symbol"])
 
-        # if users don't have that stock, create new one
-        if not usershares:
-            db.execute("INSERT INTO portfolio (symbol,name, shares, price, total, id) VALUES ( :symbol, :name,\:shares, :price, :total, :id)",
-                        symbol=stock["symbol"], name=stock["name"], shares=shares, \ price=usd(stock["price"]), total=usd(shares * stock["price"]), id=session["user_id"])
+            db.execute("INSERT INTO pricelist (station1,station2, price,totaltickets, total, id) VALUES ( :station1,:station2 :price,\:price, :totaltickets, :total, :id)",
+                        station1=pricelist["station1"], station2=pricelist["station2"],price=pricelist["price"], shares=shares, \ price=usd(stock["price"]), total=usd(shares * stock["price"]), id=session["user_id"])
         else:
-            sharestotal = usershares[0]["shares"] + shares
-            db.execute("UPDATE portfolio SET shares= :shares WHERE id= :id AND symbol= :symbol",\
-                        shares=sharestotal, id=session["user_id"], symbol=stock["symbol"])
+            ticketstotal = usertickets[0]["tickets"] +
+            db.execute("UPDATE pricelist SET tickets= :tickets WHERE id= :id AND symbol= :symbol",\
+                        tickets=ticketstotal, id=session["user_id"], symbol=stock["symbol"])
 
         return redirect(url_for("index") )
 
@@ -178,18 +166,6 @@ def logout():
     return redirect("/")
 
 
-@app.route("/quote", methods=["GET", "POST"])
-@login_required
-def quote():
-    """Get stock quote."""
-    if request.method == "POST":
-        quote = lookup(request.form.get("symbol"))
-        if not quote:
-            return apology("Stock is not valid")
-        return render_template("quoted.html", name=quote)
-    else:
-        return render_template("quote.html")
-
 @app.route("/register", methods=["GET", "POST"])
 def register():
     """Register user"""
@@ -226,50 +202,43 @@ def register():
         return render_template("register.html")
 
 
-@app.route("/sell", methods=["GET", "POST"])
+@app.route("/cancel", methods=["GET", "POST"])
 @login_required
-def sell():
-    """Sell shares of stock"""
+def cancel():
+
     if request.method == "GET":
 
-        stocks = db.execute("SELECT symbol FROM portfolio WHERE id= :id", id=session["user_id"])
-        return render_template("sell.html", stocks=stocks)
+        ticket = db.execute("SELECT ticket_no FROM pricelist WHERE id= :id", id=session["user_id"])
+        return render_template("cancel.html", ticket_no=ticket_no)
 
 
     else:
-        sell = request.form.get("symbol")
-        if not sell:
-            return apology("Invalid stock symbol")
+        cancel = request.form.get("ticketno")
+        if not cancel:
+            return apology("Invalid ticket no")
 
         shares = int(request.form.get("shares"))
-        if not shares:
-            return apology("Must enter number of shares")
+        if not ticketno:
+            return apology("Must enter ticket number")
 
-        stock = lookup(request.form.get("symbol"))
 
-        # check stock already in portfolio or not
-        usershares = db.execute("SELECT shares FROM portfolio WHERE id= :id AND symbol= :symbol",\
-                                id=session["user_id"], symbol=stock["symbol"])
+        usertickets = db.execute("SELECT ticket FROM pricelist WHERE id= :id AND ticket= :ticket",\
+                                id=session["user_id"], ticket=pricelist["ticket"])
 
-        # check users have enough shares to sell
-        if not usershares or int(usershares[0]["shares"]) < shares:
-            return apology("Not enough shares")
 
         # update to history
-        db.execute("INSERT INTO history (symbol, shares, price, id) VALUES(:symbol, :shares, :price, :id)",\
-        symbol=stock["symbol"], shares=-shares, price=usd(stock["price"]), id=session["user_id"])
+        db.execute("INSERT INTO history (station1,station2, price, id) VALUES(:station1, :station2, :price, :id)",\
+        station1=pricelist["station1"],station1=pricelist["station1"], price=usd(stock["price"]), id=session["user_id"])
 
         # update users cash
         db.execute("UPDATE users SET cash = cash +:purchase WHERE id = :id", id=session["user_id"],\
-                    purchase=stock["price"] * float(shares))
-        # shares count
-        sharestotal = usershares[0]["shares"] - shares
+                    purchase=ticket["price"] * float(shares))
 
         # update portfolio
-        if (usershares[0]["shares"]-shares == 0):
-            db.execute("DELETE FROM portfolio WHERE id= :id AND symbol=:symbol", id=session["user_id"], symbol=stock["symbol"])
+        if (usertickets[0]["shares"]-shares == 0):
+            db.execute("DELETE FROM pricelist WHERE id= :id AND ticket_no=:ticket_no", id=session["user_id"], symbol=stock["symbol"])
         else:
-            db.execute("UPDATE portfolio SET shares= :shares WHERE id= :id AND symbol= :symbol",\
+            db.execute("UPDATE pricelist SET shares= :shares WHERE id= :id AND symbol= :symbol",\
                         shares=sharestotal, id=session["user_id"], symbol=stock["symbol"])
 
     return redirect(url_for("index"))
